@@ -1,0 +1,60 @@
+[package]
+name = "skate-game"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "skate3rust"
+path = "src/main.rs"
+
+[[bin]]
+name = "skate3-multiplayer"
+path = "src/multiplayer_main.rs"
+test = false
+
+[[bin]]
+name = "skate3-custom-models"
+path = "src/custom_models_main.rs"
+test = false
+
+[features]
+default = ["dev-dynamic"]
+dev-dynamic = ["bevy/dynamic_linking"]
+web = ["bevy/webgpu"]
+web-webgl2 = ["bevy/webgl2"]
+web-diag-clear = []
+
+[dependencies]
+bevy = { workspace = true, features = ["jpeg", "debug", "bevy_audio", "wav", "vorbis"] }
+skate-core.workspace = true
+skate-data.workspace = true
+half = "=2.7.1"
+serde_json.workspace = true
+serde.workspace = true
+    skate-net = { path = "../skate-net" }
+blake3 = "=1.8.7"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+flate2 = "=1.1.10"
+skate-mods = { path = "../skate-mods" }
+skate-dynamics = { path = "../skate-dynamics" }
+gltf = { version = "=1.4.1", default-features = true }
+web-time = "=1.1.0"
+
+# Bevy's per-system spans feed the desktop `--trace` capture. In the browser
+# nothing records them, but the wasm log layer still turns every span into a
+# performance.mark/measure pair: over 40% of main-thread time in a city map.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { workspace = true, features = ["trace"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "=0.4.77"
+js-sys = "=0.3.104"
+web-sys = { version = "=0.3.104", features = ["Window", "Document", "Navigator", "Gamepad", "GamepadButton", "GamepadMappingType", "Storage", "Location", "Url", "UrlSearchParams", "Performance", "Event", "EventTarget", "File", "FileList", "Blob", "console"] }
+console_error_panic_hook = "=0.1.7"
+
+[dev-dependencies]
+naga = { version = "=27.0.3", features = ["wgsl-in"] }
+naga_oil = { version = "=0.20.0", default-features = false }
+wgpu = { version = "=27.0.1", default-features = false, features = ["vulkan", "naga-ir"] }

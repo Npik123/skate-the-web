@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Picker</title>
+<style>
+  :root { --bg: #070d13; --panel: #0d1822; --line: #1f3a50; --ink: #e8f6ff; --dim: #8fb3c8; --glow: #36b3ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: .03em; }
+  header p { margin: 0; color: var(--dim); flex: 1 1 360px; }
+  button, select, input { font: inherit; color: var(--ink); background: #12273a; border: 1px solid #2f5f82; border-radius: 4px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { background: #1a3a55; }
+  main { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 70px); }
+  nav { border-right: 1px solid var(--line); padding: 10px; overflow: auto; }
+  nav button { display: block; width: 100%; text-align: left; margin: 0 0 4px; background: transparent; border-color: transparent; }
+  nav button.on { background: #12304a; border-color: var(--glow); }
+  nav small { color: var(--dim); }
+  section { padding: 14px 18px; overflow: auto; }
+  .chosen, .bank { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 18px; }
+  .clip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+  .clip.in { border-color: var(--glow); }
+  .clip b { font-weight: 600; }
+  .clip small { color: var(--dim); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .hint { color: var(--dim); }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; } nav { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>SOUND PICKER</h1>
+  <p>Every gameplay sound and the clips it plays, from your converted copy of Skate 3. Click a clip to hear it,
+  <b>+</b> / <b>&minus;</b> to add or remove it. Download the table and replace
+  <code>assets/private/audio/sounds.json</code> in your game data, then reload the game.</p>
+  <button id="download">Download sounds.json</button>
+</header>
+<main>
+  <nav id="events"></nav>
+  <section id="detail"><p class="hint">Loading…</p></section>
+</main>
+<script>
+const BASE = 'assets/private/audio/';
+let table, index, current = null;
+const player = new Audio();
+const play = (clip, rate = 1) => { player.src = BASE + clip; player.playbackRate = rate; player.play().catch(() => {}); };
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === 'onclick' ? node.onclick = v : node.setAttribute(k, v);
+  for (const c of children) node.append(c);
+  return node;
+}
+
+function info(clip) {
+  const [, bank, file] = clip.match(/^banks\/([^/]+)\/(\d+)\.ogg$/) || [];
+  return bank ? index.banks[bank]?.[file] : null;
+}
+
+function events() {
+  const nav = document.getElementById('events');
+  nav.textContent = '';
+  const names = [...Object.keys(table.events).map((n) => ['events', n]), ...Object.keys(table.loops).map((n) => ['loops', n])];
+  for (const [kind, name] of names) {
+    const entry = table[kind][name];
+    const count = kind === 'events' ? `${entry.clips.length} clips` : (entry.clip ? 'loop' : 'no clip');
+    const button = el('button', { class: current && current[1] === name ? 'on' : '' }, name, el('br'), el('small', {}, `${kind === 'events' ? 'one-shot' : 'loop'} · ${count}`));
+    button.onclick = () => { current = [kind, name]; events(); detail(); };
+    nav.append(button);
+  }
+}
+
+function clipButton(clip, chosen, toggle) {
+  const meta = info(clip);
+  const label = clip.replace(/^banks\//, '').replace(/\.ogg$/, '');
+  const box = el('span', { class: `clip${chosen ? ' in' : ''}` },
+    el('button', { title: 'Play', onclick: () => play(clip) }, '▶'),
+    el('b', {}, label),
+    el('small', {}, meta ? ` ${meta.seconds}s` : ''),
+    el('button', { title: chosen ? 'Remove' : 'Use', onclick: toggle }, chosen ? '−' : '+'));
+  return box;
+}
+
+function detail() {
+  const view = document.getElementById('detail');
+  view.textContent = '';
+  if (!current) { view.append(el('p', { class: 'hint' }, 'Pick a sound on the left.')); return; }
+  const [kind, name] = current;
+  const entry = table[kind][name];
+  view.append(el('h2', {}, name));
+  const chosen = kind === 'events' ? entry.clips : (entry.clip ? [entry.clip] : []);
+  view.append(el('div', { class: 'row' }, el('span', { class: 'hint' }, kind === 'events'
+    ? 'Plays one of these at random each time.' : 'Loops while it applies; level and pitch follow speed.')));
+  const list = el('div', { class: 'chosen' });
+  for (const clip of chosen) list.append(clipButton(clip, true, () => {
+    if (kind === 'events') entry.clips = entry.clips.filter((c) => c !== clip); else entry.clip = null;
+    events(); detail();
+  }));
+  if (!chosen.length) list.append(el('span', { class: 'hint' }, 'Nothing chosen: silent.'));
+  view.append(list);
+
+  const banks = Object.keys(index.banks).sort((a, b) => a.localeCompare(b));
+  const loops = [...Object.keys(index.grains || {}).map((g) => `grains/${g}.ogg`), ...Object.keys(index.wheels || {}).map((w) => `wheels/${w}.ogg`)];
+  const select = el('select', {}, ...banks.map((b) => el('option', { value: b }, `${b} (${Object.keys(index.banks[b]).length})`)), el('option', { value: '*loops' }, 'Rolling grains and wheels'));
+  const guess = (chosen[0] || '').match(/^banks\/([^/]+)\//);
+  select.value = guess ? guess[1] : (chosen[0] && !chosen[0].startsWith('banks/') ? '*loops' : banks[0]);
+  const bank = el('div', { class: 'bank' });
+  const fill = () => {
+    bank.textContent = '';
+    const clips = select.value === '*loops' ? loops : Object.keys(index.banks[select.value]).map((k) => `banks/${select.value}/${k}.ogg`);
+    for (const clip of clips) {
+      const has = chosen.includes(clip);
+      bank.append(clipButton(clip, has, () => {
+        if (kind === 'events') entry.clips = has ? entry.clips.filter((c) => c !== clip) : [...entry.clips, clip];
+        else entry.clip = has ? null : clip;
+        events(); detail();
+      }));
+    }
+  };
+  select.onchange = fill;
+  view.append(el('h3', {}, 'Browse'), el('div', { class: 'row' }, select), bank);
+  fill();
+}
+
+document.getElementById('download').onclick = () => {
+  const blob = new Blob([JSON.stringify(table, null, 1)], { type: 'application/json' });
+  const link = el('a', { href: URL.createObjectURL(blob), download: 'sounds.json' });
+  document.body.append(link); link.click(); link.remove();
+};
+
+(async () => {
+  try {
+    [table, index] = await Promise.all([fetch(BASE + 'sounds.json').then((r) => r.json()), fetch(BASE + 'index.json').then((r) => r.json())]);
+  } catch (error) {
+    document.getElementById('detail').textContent = 'No converted audio on this server yet (assets/private/audio/sounds.json).';
+    return;
+  }
+  current = ['events', Object.keys(table.events)[0]];
+  events(); detail();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+//! Platform input adapter; no animation or physics state mutation here.
+use crate::app::SimulationSet;
+use bevy::prelude::*;
+
+mod controllers;
+pub(crate) mod gesture_catalog;
+mod gesture_mapping_data;
+pub(crate) mod gesture_mapping;
+pub(crate) mod gesture_input;
+pub(crate) mod platform;
+pub(crate) use controllers::{ControllerInput, ControllerStatus, RawInput};
+use skate_core::input::tick::TickInput;
+
+#[derive(Resource, Clone, Copy, Debug)]
+pub(crate) struct PublishedTickInput(pub TickInput);
+
+impl Default for PublishedTickInput {
+    fn default() -> Self {
+        Self(TickInput::new(
+            0,
+            skate_core::input::gameplay_map::GameplayActions::from_values([0.0; 18]),
+            false,
+        ))
+    }
+}
+
+pub(crate) struct InputPlugin;
+impl Plugin for InputPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ControllerInput>()
+            .init_resource::<PublishedTickInput>()
+            .add_systems(PreUpdate, poll_controllers.run_if(crate::graphics_menu::gameplay_active))
+            .add_systems(FixedUpdate, publish_actions.in_set(SimulationSet::Input));
+    }
+}
+
+pub(crate) fn poll_controllers(mut input: ResMut<ControllerInput>,config:Res<crate::config::Config>,net:Option<Res<crate::multiplayer::Multiplayer>>,windows:Query<&Window>,mut capabilities:Local<[platform::CapabilityCache;4]>) {
+    let previous = input.status;
+    let focused=windows.iter().any(|w|w.focused);
+    let active=net.is_some_and(|n|n.active());
+    input.collect(std::array::from_fn(|slot| {
+        if active && ((!focused && config.multiplayer.controller.is_none()) || config.multiplayer.controller.is_some_and(|selected|selected as usize!=slot)) {
+            capabilities[slot].invalidate();
+            Err(platform::DeviceError::Disconnected)
+        } else {platform::poll_cached(slot, &mut capabilities[slot])}
+    }));
+    for (index, (&before, &after)) in previous.iter().zip(&input.status).enumerate() {
+        if before != after {
+            match after {
+                ControllerStatus::Ready => info!("Controller {index}: raw XInput ready"),
+                ControllerStatus::Unavailable(platform::DeviceError::Disconnected) => {
+                    info!("Controller {index}: disconnected");
+                }
+                _ => warn!("Controller {index}: {after:?}"),
+            }
+        }
+    }
+}
+
+pub(crate) fn publish_actions(
+    mut input: ResMut<ControllerInput>,
+    mut published: ResMut<PublishedTickInput>,
+    menu: Option<Res<crate::graphics_menu::Menu>>,
+    debug: Res<crate::debug_cam::DebugCam>,
+    camera: Res<crate::camera::CameraRuntime>,
+    mods: Option<Res<crate::modding::Mods>>,
+) {
+    // A game mode's waiting players stand at the waiting spot: the world
+    // runs, their pad does not.
+    let blocked = !crate::graphics_menu::gameplay_active(menu) || debug.suppress_gameplay(&camera) || crate::game_modes::waiting();
+    if blocked {
+        input.discard_gameplay();
+    }
+    input.publish_actions();
+    let tick = input.tick_input();
+    let mut values=*tick.actions().values();
+    if !blocked { crate::modding::override_actions(mods.as_deref(), &mut values); }
+    if !blocked { crate::object_dropper::verify_push(tick.tick(), &mut values); }
+    let tick=TickInput::new(tick.tick(),skate_core::input::gameplay_map::GameplayActions::from_values(values),tick.controller_available());
+    published.0 = if debug.suppress_gameplay(&camera) {
+        TickInput::new(
+            tick.tick(),
+            skate_core::input::gameplay_map::GameplayActions::from_values([0.0; 18]),
+            tick.controller_available(),
+        )
+    } else {
+        tick
+    };
+}
