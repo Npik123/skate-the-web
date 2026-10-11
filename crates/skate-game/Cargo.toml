@@ -46,6 +46,8 @@ web-time = "=1.1.0"
 # performance.mark/measure pair: over 40% of main-thread time in a city map.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bevy = { workspace = true, features = ["trace"] }
+# PlayStation and other non-XInput pads (input/pads.rs); already in Bevy's tree.
+gilrs = "=0.11.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.127"

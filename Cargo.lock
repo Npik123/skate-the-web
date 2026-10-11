@@ -4767,6 +4767,7 @@ dependencies = [
  "blake3",
  "console_error_panic_hook",
  "flate2",
+ "gilrs",
  "gltf",
  "half",
  "image",

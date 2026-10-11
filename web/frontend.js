@@ -675,7 +675,7 @@ export function createFrontend({ store, start, gpuProblem }) {
       ] },
       { name: 'LEARN', icon: 'catLearn', on: 'catLearnOn', rows: [
         { name: 'Controls', icon: 'book', help: 'Controller and keyboard layout.', run: () => message('CONTROLS',
-          'Controller: any standard (Xbox-layout) gamepad. Flick It on the right stick, push with A, Start for the menu.\n\n' +
+          'Controller: Xbox 360 / One / Series, PlayStation 3 / 4 / 5 and most other gamepads. Flick It on the right stick, push with A (Cross), Start (Options) for the menu.\n\n' +
           'Keyboard, with no controller connected:\n' +
           '• WASD: left stick (steer, push, crouch)\n' +
           '• Arrow keys: right stick (Flick It tricks)\n' +

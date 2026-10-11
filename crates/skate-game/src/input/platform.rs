@@ -91,12 +91,24 @@ mod web {
         (value.clamp(0., 1.) * 255.).round() as u8
     }
 
+    /// Pads in the browser's standard layout first (Xbox, and PlayStation
+    /// 3/4/5 pads in current browsers), then pads the browser could not map
+    /// but that are shaped like one (4+ axes, 12+ buttons; some PS3 pads),
+    /// read with the standard layout. Wheels and sticks are left out.
     fn connected_pads() -> Vec<web_sys::Gamepad> {
         let Some(window) = web_sys::window() else { return Vec::new() };
         let Ok(list) = window.navigator().get_gamepads() else { return Vec::new() };
-        list.iter()
+        let pads: Vec<web_sys::Gamepad> = list
+            .iter()
             .filter_map(|entry| entry.dyn_into::<web_sys::Gamepad>().ok())
-            .filter(|pad| pad.connected() && pad.mapping() == web_sys::GamepadMappingType::Standard)
+            .filter(|pad| pad.connected())
+            .collect();
+        let standard = |pad: &web_sys::Gamepad| pad.mapping() == web_sys::GamepadMappingType::Standard;
+        let pad_shaped = |pad: &web_sys::Gamepad| pad.axes().length() >= 4 && pad.buttons().length() >= 12;
+        pads.iter()
+            .filter(|pad| standard(pad))
+            .chain(pads.iter().filter(|pad| !standard(pad) && pad_shaped(pad)))
+            .cloned()
             .collect()
     }
 
@@ -125,14 +137,18 @@ mod web {
         let buttons = pad.buttons();
         let mut mask = 0u16;
         for (slot, bit) in BUTTONS {
-            if bit != 0 {
+            if bit != 0 && (slot as u32) < buttons.length() {
                 let button: web_sys::GamepadButton = buttons.get(slot as u32).unchecked_into();
                 if button.pressed() {
                     mask |= bit;
                 }
             }
         }
+        // A pad the browser could not map may have fewer buttons.
         let analog = |slot: u32| -> f64 {
+            if slot >= buttons.length() {
+                return 0.;
+            }
             let button: web_sys::GamepadButton = buttons.get(slot).unchecked_into();
             button.value()
         };
@@ -236,20 +252,49 @@ mod windows {
     }
 }
 
+/// Which XInput slots last answered: the other pads fill the empty ones.
+#[cfg(not(target_arch = "wasm32"))]
+static XINPUT: [std::sync::atomic::AtomicBool; 4] = [const { std::sync::atomic::AtomicBool::new(false) }; 4];
+
+/// A PlayStation (or other non-XInput) pad for an empty XInput slot: the
+/// first such pad takes the first empty slot, and so on.
+#[cfg(not(target_arch = "wasm32"))]
+fn other_pad(index: usize) -> Option<DevicePacket> {
+    let empty_before = (0..index).filter(|&k| !XINPUT[k].load(std::sync::atomic::Ordering::Relaxed)).count();
+    super::pads::snapshot().get(empty_before).map(|pad| DevicePacket {
+        number: pad.number,
+        state: pad.state,
+        // XINPUT_DEVSUBTYPE_GAMEPAD: a standard pad.
+        subtype: 1,
+    })
+}
+
 pub(crate) fn poll_cached(
     index: usize,
     cache: &mut CapabilityCache,
 ) -> Result<DevicePacket, DeviceError> {
     assert!(index < 4);
     #[cfg(windows)]
-    return windows::poll(index as u32, cache);
+    {
+        let result = windows::poll(index as u32, cache);
+        XINPUT[index].store(result.is_ok(), std::sync::atomic::Ordering::Relaxed);
+        if matches!(result, Err(DeviceError::Disconnected)) {
+            if let Some(packet) = other_pad(index) {
+                return Ok(packet);
+            }
+        }
+        return result;
+    }
     #[cfg(target_arch = "wasm32")]
     {
         let _ = cache;
         return web::poll(index as u32);
     }
     #[cfg(all(not(windows), not(target_arch = "wasm32")))]
-    Err(DeviceError::UnsupportedPlatform)
+    {
+        let _ = cache;
+        other_pad(index).ok_or(DeviceError::Disconnected)
+    }
 }
 
 #[cfg(test)]
