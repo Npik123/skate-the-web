@@ -1,0 +1,7 @@
+[build]
+  publish = "dist"
+
+[[headers]]
+  for = "/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"
