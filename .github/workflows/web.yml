@@ -1,0 +1,33 @@
+name: Web build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['web/**', 'crates/**', 'scripts/build-web.ps1', 'Cargo.*']
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: sudo apt-get update && sudo apt-get install -y binaryen
+      - run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Build web client
+        shell: pwsh
+        run: ./scripts/build-web.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Deploy to Netlify
+        if: env.NETLIFY_AUTH_TOKEN != '' && env.NETLIFY_SITE_ID != ''
+        run: npx --yes netlify-cli deploy --dir=dist --prod
