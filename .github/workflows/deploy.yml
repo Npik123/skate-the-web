@@ -1,0 +1,28 @@
+name: Deploy to Netlify
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          missing=0
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then echo "NETLIFY_AUTH_TOKEN is missing or empty"; missing=1; fi
+          if [ -z "$NETLIFY_SITE_ID" ]; then echo "NETLIFY_SITE_ID is missing or empty"; missing=1; fi
+          exit $missing
+      - name: Download latest dist from the Web build
+        run: |
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow web.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then echo "No successful Web build found"; exit 1; fi
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name dist --dir dist
+          ls dist
+      - name: Deploy to Netlify
+        run: npx --yes netlify-cli deploy --dir=dist --prod
